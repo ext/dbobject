@@ -537,8 +537,14 @@ public abstract class DBObject {
 					continue;
 				}
 				
-				System.out.println("setting " + f.name + " to " + f.field.get(this));
-				query.setObject(i++, f.field.get(this));
+				Object value = f.field.get(this);
+				
+				if ( f.reference != null ){
+					value = ((DBObject)value).id();
+				}
+				
+				System.out.println("setting " + f.name + " to " + value);
+				query.setObject(i++, value);
 			}
 			
 			if ( _exists ){
