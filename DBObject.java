@@ -5,6 +5,7 @@ import java.lang.reflect.Constructor;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -255,16 +256,46 @@ public abstract class DBObject {
 		T item = (T) ctor.newInstance(args);
 		
 		/* fill in all fields from the database query */
-		for ( Field field : query.fields ){
-			Object value = rs.getObject(field.name);
-			field.field.set(item, value);
-		}
+		item.update_fields(query, rs);
 		
 		/* mark it as existing (in db) */
 		item._exists = true;
 		
 		/* done */
 		return item;
+	}
+	
+	private void update_fields(DBObjectState self, ResultSet rs) throws Exception {
+		for ( Field field : self.fields ){
+			Object value = rs.getObject(field.name);
+			field.field.set(this, value);
+		}
+	}
+	
+	/**
+	 * Refresh all values (based on primary key) with values from database.
+	 */
+	public void refresh(DBObjectState self){
+		refresh(self, id()); /* TODO hardcoded primary key */
+	}
+	
+	/* TODO hardcoded primary key */
+	private void refresh(DBObjectState self, int id){ 
+		try {
+			/* execute query */
+			self.by_id.setInt(1, id);
+			self.by_id.execute();
+			ResultSet rs = self.by_id.getResultSet();
+			
+			/* no matching row */
+			if ( !rs.next() ){
+				throw new RuntimeException("Invalid object referece, primary key not found in database");
+			}
+			
+			update_fields(self, rs);
+		} catch ( Exception e ){
+			e.printStackTrace();
+		}
 	}
 	
 	/**
@@ -466,7 +497,7 @@ public abstract class DBObject {
 		}
 
 		try {
-			PreparedStatement query = self.db.prepareStatement(sql.toString());
+			PreparedStatement query = self.db.prepareStatement(sql.toString(), Statement.RETURN_GENERATED_KEYS);
 			
 			int i = 1;
 			for ( Field f : self.fields ){
@@ -484,6 +515,15 @@ public abstract class DBObject {
 			}
 		
 			query.execute();
+			
+			/* update fields in object if a new object was created */
+			if ( !_exists ){
+				ResultSet rs = query.getGeneratedKeys();
+				rs.next();
+				
+				/* TODO again, match primary key, not hardcoded */
+				refresh(self, rs.getInt(1));
+			}
 		
 			return true;
 		} catch ( Exception e ){
