@@ -505,6 +505,7 @@ public abstract class DBObject {
 	}
 	
 	public abstract int id();
+	public int primary_key(){ return id(); }
 
 	public void remove() {
 		// TODO Auto-generated method stub
@@ -540,7 +541,7 @@ public abstract class DBObject {
 				Object value = f.field.get(this);
 				
 				if ( f.reference != null ){
-					value = ((DBObject)value).id();
+					value = ((DBObject)value).primary_key();
 				}
 				
 				System.out.println("setting " + f.name + " to " + value);
@@ -548,7 +549,7 @@ public abstract class DBObject {
 			}
 			
 			if ( _exists ){
-				query.setInt(i, id());
+				query.setInt(i, primary_key());
 			}
 		
 			query.execute();
