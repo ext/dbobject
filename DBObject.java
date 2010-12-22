@@ -170,7 +170,7 @@ public abstract class DBObject {
 			tmp.add(String.format("\t`%s`", f.name));
 		}
 		
-		return array_join(tmp, ",\n") + "\n"; /* append a space after so it doesnt choke
+		return array_join(tmp, ",\n") + "\n"; /* append a space after so it doesn't choke
 		                               * on the next SQL line, eg: "`foo`FROM"
 		                               */
 	}
@@ -183,10 +183,10 @@ public abstract class DBObject {
 				continue;
 			}
 			
-			tmp.add(String.format("`%s` = ?", f.name));
+			tmp.add(String.format("\t`%s` = ?", f.name));
 		}
 		
-		return array_join(tmp, ",") + " "; /* append a space after so it doesnt choke
+		return array_join(tmp, ",\n") + "\n"; /* append a space after so it doesn't choke
 		                               * on the next SQL line, eg: "`foo`FROM"
 		                               */
 	}
@@ -448,25 +448,47 @@ public abstract class DBObject {
 		// TODO Auto-generated method stub
 	}
 
-	public boolean persist_int(DBObjectState query) {
+	public boolean persist_int(DBObjectState self) {
+		StringBuilder sql = new StringBuilder();
+
+		if ( _exists ){
+			sql.append("UPDATE ");
+		} else {
+			sql.append("INSERT INTO ");
+		}
+		
+		sql.append("`" + self.table + "` SET\n");
+		sql.append(column_update_from_array(self.fields));
+		
+		if ( _exists ){
+			sql.append("WHERE\n");
+			sql.append("\t`id` = ?\n");
+		}
+
 		try {
+			PreparedStatement query = self.db.prepareStatement(sql.toString());
+			
 			int i = 1;
-			for ( Field f : query.fields ){
+			for ( Field f : self.fields ){
 				/* TODO should blacklist based on primary key, not hardcoded column */
 				if ( f.name.equals("id") ){
 					continue;
 				}
 				
-				query.persist.setObject(i++, f.field.get(this));
+				System.out.println("setting " + f.name + " to " + f.field.get(this));
+				query.setObject(i++, f.field.get(this));
 			}
 			
-			query.persist.setInt(i, id());
+			if ( _exists ){
+				query.setInt(i, id());
+			}
 		
-			query.persist.execute();
+			query.execute();
 		
 			return true;
 		} catch ( Exception e ){
 			e.printStackTrace();
+			System.err.println("\nWhen executing selection query:\n" + sql);
 			return false;
 		}
 	}
