@@ -2,6 +2,7 @@ package se.bth.libsla.db;
 
 import java.lang.annotation.*;
 import java.lang.reflect.Constructor;
+import java.lang.reflect.Field;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -23,26 +24,30 @@ import java.util.Map;
 public abstract class DBObject {
 	@Retention(RetentionPolicy.RUNTIME)
 	@Target(ElementType.FIELD)
-	public @interface Column {
+	protected @interface Column {
 		String value();
 	}
 	
-	static public class Field {
+	@Retention(RetentionPolicy.RUNTIME)
+	@Target(ElementType.FIELD)
+	protected @interface References {
+		Class<? extends DBObject> value();
+	}
+	
+	static public class ColumnData {
 		public String name;
 		public Class<?> data_type;
-		java.lang.reflect.Field field;
-
-		@SuppressWarnings("hiding")
-		public Field(String name, Class<?> data_type, java.lang.reflect.Field field) {
-			this.name = name;
-			this.data_type = data_type;
-			this.field = field;
-		}
+		public Class<? extends DBObject> reference;
+		public Field field;
 	}
 	
 	/* If true, it means that the object has a corresponding row in the
 	 * database, otherwise a new row must be inserted if object saved. */
 	private boolean _exists = false;
+	
+	protected DBObject(DBObjectState self, int id){
+		refresh(self, id);
+	}
 	
 	/**
 	 * Initializes database queries. Must be called once.
@@ -88,11 +93,11 @@ public abstract class DBObject {
 		return query;
 	}
 	
-	private static <T> List<Field> get_fields(Class<?> cls, DataLayer db, String table) throws SQLException {
+	private static <T> List<ColumnData> get_fields(Class<?> cls, DataLayer db, String table) throws SQLException {
 		List<String> available_columns = get_columns(db, table);
-		List<Field> fields = new ArrayList<Field>();
+		List<ColumnData> fields = new ArrayList<ColumnData>();
 		
-		for ( java.lang.reflect.Field field : cls.getDeclaredFields() ){
+		for ( Field field : cls.getDeclaredFields() ){
 			Column column = field.getAnnotation(Column.class);
 			
 			if ( column == null ){
@@ -108,7 +113,20 @@ public abstract class DBObject {
 			
 			field.setAccessible(true);
 			
-			fields.add(new Field(column.value(), field.getType(), field));
+			ColumnData data = new ColumnData();
+			data.name = column.value();
+			data.data_type = field.getType();
+			data.reference = null;
+			data.field = field;
+			
+			/* check if a reference was requested */
+			References ref = field.getAnnotation(References.class);
+			
+			if ( ref != null ){
+				data.reference = ref.value();;
+			}
+			
+			fields.add(data);
 		}
 		
 		return fields;
@@ -165,9 +183,9 @@ public abstract class DBObject {
 		return result; 
 	}
 	
-	private static String column_query_from_array(List<Field> fields){
+	private static String column_query_from_array(List<ColumnData> fields){
 		List<String> tmp = new ArrayList<String>(fields.size());
-		for ( Field f : fields ){
+		for ( ColumnData f : fields ){
 			tmp.add(String.format("\t`%s`", f.name));
 		}
 		
@@ -176,9 +194,9 @@ public abstract class DBObject {
 		                               */
 	}
 	
-	private static String column_update_from_array(List<Field> fields){
+	private static String column_update_from_array(List<ColumnData> fields){
 		List<String> tmp = new ArrayList<String>(fields.size());
-		for ( Field f : fields ){
+		for ( ColumnData f : fields ){
 			/* TODO should blacklist based on primary key, not hardcoded column */
 			if ( f.name.equals("id") ){
 				continue;
@@ -266,8 +284,21 @@ public abstract class DBObject {
 	}
 	
 	private void update_fields(DBObjectState self, ResultSet rs) throws Exception {
-		for ( Field field : self.fields ){
+		for ( ColumnData field : self.fields ){
 			Object value = rs.getObject(field.name);
+			
+			if ( field.reference != null ){ /* reference column */
+				try {
+					Class<? extends DBObject> ref_cls = field.reference;
+					Constructor<? extends DBObject> ctor = ref_cls.getConstructor(value.getClass());
+
+					value = ctor.newInstance(value);
+				} catch ( Exception e ){
+					e.printStackTrace();
+					value = null;
+				}
+			}
+			
 			field.field.set(this, value);
 		}
 	}
@@ -500,7 +531,7 @@ public abstract class DBObject {
 			PreparedStatement query = self.db.prepareStatement(sql.toString(), Statement.RETURN_GENERATED_KEYS);
 			
 			int i = 1;
-			for ( Field f : self.fields ){
+			for ( ColumnData f : self.fields ){
 				/* TODO should blacklist based on primary key, not hardcoded column */
 				if ( f.name.equals("id") ){
 					continue;

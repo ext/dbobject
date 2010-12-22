@@ -12,6 +12,6 @@ public class DBObjectState {
 	public PreparedStatement by_id;
 	public PreparedStatement persist;
 	
-	public List<DBObject.Field> fields;
+	public List<DBObject.ColumnData> fields;
 	public Constructor<?>[] ctor;
 }
