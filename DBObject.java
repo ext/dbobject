@@ -39,6 +39,10 @@ public abstract class DBObject {
 		}
 	}
 	
+	/* If true, it means that the object has a corresponding row in the
+	 * database, otherwise a new row must be inserted if object saved. */
+	private boolean _exists = false;
+	
 	/**
 	 * Initializes database queries. Must be called once.
 	 * @param db 
@@ -255,6 +259,9 @@ public abstract class DBObject {
 			Object value = rs.getObject(field.name);
 			field.field.set(item, value);
 		}
+		
+		/* mark it as existing (in db) */
+		item._exists = true;
 		
 		/* done */
 		return item;
