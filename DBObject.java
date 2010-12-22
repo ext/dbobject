@@ -14,14 +14,8 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Base class for all database tables of the form:
- *   - ID
- *   - shortname
- *   - longname
- *   - description
- * 
- * It has setters and getters for all fields (except no setter for ID).
- * Remember to all persist_int after setting values to actually save them.
+ * Representation of a database table.
+ * Quite inspired by BasicObject by Eric Druid [https://github.com/edruid/BasicObject]
  * 
  * @author David Sveningsson <david.sveningsson@bth.se>
  */
