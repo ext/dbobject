@@ -216,7 +216,7 @@ public abstract class DBObject {
 	}
 	
 	@SuppressWarnings("unchecked")
-	private static <T> T instantiate(DBObjectState query, ResultSet rs, Object[] args) throws Exception {
+	private static <T extends DBObject> T instantiate(DBObjectState query, ResultSet rs, Object[] args) throws Exception {
 		Constructor<?> ctor = null;
 		
 		/* try to find a constructor matching args */
@@ -263,7 +263,7 @@ public abstract class DBObject {
 	/**
 	 * Same as from_id_int(query, id, new Object[0])
 	 */
-	protected static <T> T from_id_int(DBObjectState query, int id) {
+	protected static <T extends DBObject> T from_id_int(DBObjectState query, int id) {
 		return from_id_int(query, id, new Object[0]);
 	}
 	
@@ -279,7 +279,7 @@ public abstract class DBObject {
 	 * @param id ID of the row to request.
 	 * @return new instance of T, or null if not found.
 	 */
-	protected static <T> T from_id_int(DBObjectState query, int id, Object[] args) {
+	protected static <T extends DBObject> T from_id_int(DBObjectState query, int id, Object[] args) {
 		try {
 			/* execute query */
 			query.by_id.setInt(1, id);
@@ -301,11 +301,11 @@ public abstract class DBObject {
 	/**
 	 * Same as all(self, new Object[0]);
 	 */
-	protected static <T> List<T> all(DBObjectState self){
+	protected static <T extends DBObject> List<T> all(DBObjectState self){
 		return all(self, new Object[0]);
 	}
 	
-	protected static <T> List<T> all(DBObjectState self, Object[] args){
+	protected static <T extends DBObject> List<T> all(DBObjectState self, Object[] args){
 		/* allocate list */
 		List<T> result = new ArrayList<T>();
 		
@@ -328,7 +328,7 @@ public abstract class DBObject {
 	/**
 	 * Same as selection(self, criteria, new Object[0]);
 	 */
-	protected static <T> List<T> selection(DBObjectState self, Map<String, Object> criteria){
+	protected static <T extends DBObject> List<T> selection(DBObjectState self, Map<String, Object> criteria){
 		return selection(self, criteria, new Object[0]);
 	}
 	
@@ -354,7 +354,7 @@ public abstract class DBObject {
 	 * @param criteria Map of which columns to match with.
 	 * @return List of T with all matching rows, on errors list will be incomplete.
 	 */
-	protected static <T> List<T> selection(DBObjectState self, Map<String, Object> criteria, Object[] args){
+	protected static <T extends DBObject> List<T> selection(DBObjectState self, Map<String, Object> criteria, Object[] args){
 		List<T> result = new ArrayList<T>();
 		
 		StringBuilder sql = new StringBuilder("SELECT\n" +
