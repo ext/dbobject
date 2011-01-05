@@ -19,15 +19,40 @@ import java.util.Map;
  * Representation of a database table.
  * Quite inspired by BasicObject by Eric Druid [https://github.com/edruid/BasicObject]
  * 
+ * Usage:
+ * 
+ * 1. Create a new class extending DBObject
+ * 2. Add some fields to it and mark them using @Column
+ * 3. Add a static method to initialize the class, have it call
+ *    DBObject.initialize and store the state object it returns.
+ * 4. Using from_id() or selection() you can query the database table, and
+ *    persist() to store object. New instances are INSERT'ed and existing are
+ *    UPDATE'd. 
+ * 
  * @author David Sveningsson <david.sveningsson@bth.se>
  */
 public abstract class DBObject {
+	
+	/**
+	 * Mark a field as a representation of a table column.
+	 * E.g.
+	 *     "private @Column(id) int id;"
+	 * will put the value of table.id into the variable id.
+	 */
 	@Retention(RetentionPolicy.RUNTIME)
 	@Target(ElementType.FIELD)
 	protected @interface Column {
 		String value();
 	}
 	
+	/**
+	 * Mark field as a reference to another DBObject class using @Column as key.
+	 * E.g.
+	 *     "private @Column(foo_id) @References(Foo.class) Foo foo;"
+	 * will create an instance of the class Foo based on the table column
+	 * foo_id. Foo must be a subclass of DBObject and have a matching
+	 * constructor to select based on foo_id.
+	 */
 	@Retention(RetentionPolicy.RUNTIME)
 	@Target(ElementType.FIELD)
 	protected @interface References {
@@ -45,12 +70,15 @@ public abstract class DBObject {
 	 * database, otherwise a new row must be inserted if object saved. */
 	private boolean _exists = false;
 	
+	/**
+	 * Instantiate using primary key.
+	 */
 	protected DBObject(DBObjectState self, int id){
 		refresh(self, id);
 	}
 	
 	/**
-	 * Initializes database queries. Must be called once.
+	 * Initializes database queries. Must be called once for each subclass.
 	 * @param db 
 	 * @param table Name of the database table with the data.
 	 * @param custom_fields Additional fields to pull.
@@ -85,6 +113,9 @@ public abstract class DBObject {
 		return query;
 	}
 	
+	/**
+	 * Lists all fields in the subclass, marked with the @Column annotation.
+	 */
 	private static <T> List<ColumnData> get_fields(Class<?> cls, DataLayer db, String table) throws SQLException {
 		List<String> available_columns = get_columns(db, table);
 		List<ColumnData> fields = new ArrayList<ColumnData>();
@@ -92,10 +123,12 @@ public abstract class DBObject {
 		for ( Field field : cls.getDeclaredFields() ){
 			Column column = field.getAnnotation(Column.class);
 			
+			/* Field did not declare the @Column annotation, skip */
 			if ( column == null ){
 				continue;
 			}
 			
+			/* Ensure that the database table holds a column with the referenced name */
 			if ( !available_columns.contains(column.value()) ){
 				throw new RuntimeException(String.format(
 					"Class %s.%s refers to `%s`.`%s` which is not available",
@@ -103,21 +136,24 @@ public abstract class DBObject {
 				));
 			}
 			
+			/* since this class writes data to the fields, it must be accessible */
 			field.setAccessible(true);
 			
+			/* Create and fill field wrapper */
 			ColumnData data = new ColumnData();
 			data.name = column.value();
 			data.data_type = field.getType();
 			data.reference = null;
 			data.field = field;
 			
-			/* check if a reference was requested */
+			/* check if a reference (to another DBObject class) was requested */
 			References ref = field.getAnnotation(References.class);
 			
 			if ( ref != null ){
-				data.reference = ref.value();;
+				data.reference = ref.value();
 			}
 			
+			/* store */
 			fields.add(data);
 		}
 		
@@ -152,6 +188,9 @@ public abstract class DBObject {
 		return result; 
 	}
 	
+	/**
+	 * Get a list of all columns in the selected table.
+	 */
 	private static List<String> get_columns(DataLayer db, String table) throws SQLException {
 		/* Based on BasicObject by edruid */
 		PreparedStatement query = db.prepareStatement(
@@ -525,7 +564,13 @@ public abstract class DBObject {
 		return value;
 	}
 
-	public boolean persist_int(DBObjectState self) {
+	/**
+	 * Store this object in the table. If it is a new object it is INSERT'ed
+	 * and if it was queried from the database it will be UPDATE'd.
+	 * @param self State object.
+	 * @return Whenever successful or not.
+	 */
+	protected boolean persist(DBObjectState self) {
 		PreparedStatement query = null;
 		String sql = null;
 		
@@ -534,6 +579,7 @@ public abstract class DBObject {
 			query = self.db.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS);
 			int i = 1;
 			
+			/* Fill all column values */
 			for ( ColumnData f : self.fields ){
 				/* TODO should blacklist based on primary key, not hardcoded column */
 				if ( f.name.equals("id") ){
@@ -544,6 +590,7 @@ public abstract class DBObject {
 				query.setObject(i++, value);
 			}
 			
+			/* if the object exists add the primary key to the WHERE clause */
 			if ( _exists ){
 				query.setInt(i++, primary_key());
 			}
@@ -568,6 +615,9 @@ public abstract class DBObject {
 		}
 	}
 	
+	/**
+	 * Create the query used by persist()
+	 */
 	private String persist_query_store(DBObjectState self){
 		StringBuilder dst = new StringBuilder();
 		
