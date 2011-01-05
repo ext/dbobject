@@ -10,7 +10,6 @@ import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
-import java.util.Hashtable;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -241,6 +240,7 @@ public abstract class DBObject {
 		                               */
 	}
 	
+	@SuppressWarnings("unused")
 	private static List<String> string_map_format(Collection<String> array, String fmt){
 		List<String> tmp = new ArrayList<String>(array.size());
 		for ( String str : array ){
@@ -428,7 +428,7 @@ public abstract class DBObject {
 	/**
 	 * Same as selection(self, criteria, new Object[0]);
 	 */
-	protected static <T extends DBObject> List<T> selection(DBObjectState self, Map<String, Object> criteria){
+	protected static <T extends DBObject> List<T> selection(DBObjectState self, TupleList criteria){
 		return selection(self, criteria, new Object[0]);
 	}
 	
@@ -436,25 +436,36 @@ public abstract class DBObject {
 	 * Get all rows matching criteria.
 	 * 
 	 * Sample usage:
-	 * Map<String, Object> criteria = new Hashtable<String, Object>();
-	 * criteria.put("domain_id", new Integer(domain.id()));
-	 * List<Metric> x = all(criteria);
+	 * TupleList criteria = new TupleList();
+	 * criteria.add("domain_id", new Integer(domain.id()));
+	 * List<Metric> x = selection(criteria);
 	 * 
 	 * Criteria
 	 * --------
 	 * 
 	 * By default all entries in criteria is used in the WHERE clause. Special
 	 * keywords can be used to further refine the query. Keywords always begin
-	 * with the @-sign.
+	 * with the @-sign. By default criteria is glued with AND, use keywords to
+	 * change this behaviour.
 	 * 
+	 * `@or` CRITERIA - Match subcriteria using OR, e.g. WHERE (foo=1 OR bar=2)
+	 * `@and` CRITERIA - Match subcriteria using AND, e.g. WHERE (foo=1 AND bar=2)
 	 * `@limit` INTEGER - Appends a LIMIT clause 
+	 * 
+	 * Values
+	 * ------
+	 * 
+	 * Values are by default matched by the database, with the following exceptions (strings):
+	 * 
+	 * `@null` - Will match against null, e.g. WHERE foo IS NULL
+	 * `@not_null` - Will match against not null, e.g. WHERE foo IS NOT NULL
 	 * 
 	 * @param <T> Type of the subclass.
 	 * @param self State object from initialize_queries.
 	 * @param criteria Map of which columns to match with.
 	 * @return List of T with all matching rows, on errors list will be incomplete.
 	 */
-	protected static <T extends DBObject> List<T> selection(DBObjectState self, Map<String, Object> criteria, Object[] args){
+	protected static <T extends DBObject> List<T> selection(DBObjectState self, TupleList criteria, Object[] args){
 		List<T> result = new ArrayList<T>();
 		
 		StringBuilder sql = new StringBuilder("SELECT\n" +
@@ -462,46 +473,19 @@ public abstract class DBObject {
 			"FROM\n" +
 			String.format("\t`%s`\n", self.table));
 		
-		Map<String, Object> where = new Hashtable<String, Object>();
-		String limit = null;
+		String limit[] = {null};
+		StringBuilder where = new StringBuilder();
+		List<Object> values = selection_build_where(where, criteria, limit, "AND");
 		
-		for ( Map.Entry<String, Object> entry : criteria.entrySet() ){
-			String key = entry.getKey();
-			Object value = entry.getValue();
-			
-			if ( key.startsWith("@") ){
-				if (key.equals("@limit") ){
-					if ( limit != null ){
-						throw new RuntimeException("Got multiple limit-keywords");
-					}
-					
-					if ( !(value instanceof Integer) ){
-						throw new RuntimeException("Limit expected numerical value, got " + value.getClass().getName());
-					}
-					
-					limit = "LIMIT " + value.toString();
-				} else {
-					throw new RuntimeException("Unknown keyword " + key + " passed as criteria");
-				}
-				
-				continue;
-			}
-			
-			where.put(entry.getKey(), entry.getValue());
+		/* only add WHERE-clauses if criteria was specified */
+		if ( !where.toString().equals("\n") ){
+			sql.append("WHERE\n");
+			sql.append(where.toString());
 		}
 		
-		
-		List<String> col = string_map_format(where.keySet(), "\t`%s` = ?");
-		String where_sql = array_join(col, " AND \n");
-		
-		/* append WHERE */
-		sql.append("WHERE\n");
-		sql.append(where_sql);
-		sql.append("\n");
-		
 		/* append LIMIT */
-		if ( limit != null ){
-			sql.append(limit);
+		if ( limit[0] != null ){
+			sql.append(limit[0]);
 			sql.append("\n");
 		}
 		
@@ -509,7 +493,7 @@ public abstract class DBObject {
 			PreparedStatement query = self.db.prepareStatement(sql.toString());
 			
 			int i = 1;
-			for ( Object value: where.values() ){
+			for ( Object value: values ){
 				query.setObject(i++, value);
 			}
 			
@@ -529,6 +513,72 @@ public abstract class DBObject {
 		}
 		
 		return result;
+	}
+	
+	private static List<Object> selection_build_where(StringBuilder dst, TupleList criteria, String[] limit, String glue){
+		List<String> clause = new ArrayList<String>();
+		List<Object> values = new ArrayList<Object>();
+		
+		for ( Map.Entry<String, Object> entry : criteria.entrySet() ){
+			String key = entry.getKey();
+			Object value = entry.getValue();
+			
+			if ( key.startsWith("@") ){
+				if ( key.equals("@or") ){
+					TupleList inner = (TupleList)value;
+					
+					StringBuilder sub_clause = new StringBuilder("(\n");
+					List<Object> sub_values = selection_build_where(sub_clause, inner, null, "OR");
+					sub_clause.append(")");
+					
+					clause.add(sub_clause.toString());
+					values.addAll(sub_values);
+				} else if ( key.equals("@and") ){
+					TupleList inner = (TupleList)value;
+					
+					StringBuilder sub_clause = new StringBuilder("(\n");
+					List<Object> sub_values = selection_build_where(sub_clause, inner, null, "AND");
+					sub_clause.append(")");
+					
+					clause.add(sub_clause.toString());
+					values.addAll(sub_values);
+				} else if ( key.equals("@limit") ){
+					if ( limit[0] != null ){
+						throw new RuntimeException("Got multiple limit-keywords");
+					}
+					
+					if ( !(value instanceof Integer) ){
+						throw new RuntimeException("Limit expected numerical value, got " + value.getClass().getName());
+					}
+					
+					limit[0] = "LIMIT " + value.toString();
+				} else {
+					throw new RuntimeException("Unknown keyword " + key + " passed as criteria");
+				}
+				
+				continue;
+			}
+			
+			if ( value == null || value.equals("@null") ){
+				clause.add(String.format("\t`%s` IS NULL", key));
+			} else if ( value.equals("@not_null") ){
+				clause.add(String.format("\t`%s` IS NOT NULL", key));
+			} else {
+				clause.add(String.format("\t`%s` = ?", key));
+				values.add(value);
+			}
+		}
+		
+		
+		//parts.addAll(string_map_format(columns.keySet(), "\t`%s` = ?"));
+		String where_sql = array_join(clause, " " + glue + " \n");
+		
+		/* append WHERE */
+		dst.append(where_sql);
+		dst.append("\n");
+		
+		return values;
+		
 	}
 	
 	public DBObject() {
