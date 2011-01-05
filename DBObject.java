@@ -82,14 +82,6 @@ public abstract class DBObject {
 			"	`id` = ? " +
 			"LIMIT 1");
 		
-		/* used by persist_int */
-		/* TODO use primary key in WHERE clause, not hardcoded column */
-		query.persist = db.prepareStatement(
-			"UPDATE `" + table + "` SET " +
-			column_update_from_array(query.fields) + 
-			"WHERE " +
-			"	`id` = ?");
-		
 		return query;
 	}
 	
@@ -510,48 +502,52 @@ public abstract class DBObject {
 	public void remove() {
 		// TODO Auto-generated method stub
 	}
+	
+	private Object value_from_column(ColumnData column) throws Exception {
+		Object value = null;
+		
+		try {
+			value = column.field.get(this);
+			
+			/* return null without checking references if the value is unset */
+			if ( value == null ){
+				return null;
+			}
+			
+			if ( column.reference != null ){
+				value = ((DBObject)value).primary_key();
+			}
+		} catch ( Exception ei ){
+			System.err.println("Exception raised when reading column " + column.name + ":");
+			throw ei;
+		}
+		
+		return value;
+	}
 
 	public boolean persist_int(DBObjectState self) {
-		StringBuilder sql = new StringBuilder();
-
-		if ( _exists ){
-			sql.append("UPDATE ");
-		} else {
-			sql.append("INSERT INTO ");
-		}
+		PreparedStatement query = null;
+		String sql = null;
 		
-		sql.append("`" + self.table + "` SET\n");
-		sql.append(column_update_from_array(self.fields));
-		
-		if ( _exists ){
-			sql.append("WHERE\n");
-			sql.append("\t`id` = ?\n");
-		}
-
 		try {
-			PreparedStatement query = self.db.prepareStatement(sql.toString(), Statement.RETURN_GENERATED_KEYS);
-			
+			sql = persist_query_store(self);
+			query = self.db.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS);
 			int i = 1;
+			
 			for ( ColumnData f : self.fields ){
 				/* TODO should blacklist based on primary key, not hardcoded column */
 				if ( f.name.equals("id") ){
 					continue;
 				}
 				
-				Object value = f.field.get(this);
-				
-				if ( f.reference != null ){
-					value = ((DBObject)value).primary_key();
-				}
-				
-				System.out.println("setting " + f.name + " to " + value);
+				Object value = value_from_column(f);
 				query.setObject(i++, value);
 			}
 			
 			if ( _exists ){
-				query.setInt(i, primary_key());
+				query.setInt(i++, primary_key());
 			}
-		
+			
 			query.execute();
 			
 			/* update fields in object if a new object was created */
@@ -567,8 +563,30 @@ public abstract class DBObject {
 		} catch ( Exception e ){
 			e.printStackTrace();
 			System.err.println("\nWhen executing selection query:\n" + sql);
+			
 			return false;
 		}
 	}
-
+	
+	private String persist_query_store(DBObjectState self){
+		StringBuilder dst = new StringBuilder();
+		
+		if ( _exists ){
+			dst.append("UPDATE ");
+		} else {
+			dst.append("INSERT INTO ");
+		}
+		
+		dst.append("`" + self.table + "` SET\n");
+		dst.append(column_update_from_array(self.fields));
+		
+		if ( _exists ){
+			dst.append("WHERE\n");
+			dst.append("\t`id` = ?;\n");
+		} else {
+			dst.append(";\n");
+		}
+		
+		return dst.toString();
+	}
 }

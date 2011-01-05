@@ -10,8 +10,18 @@ public class DBObjectState {
 	
 	public PreparedStatement all;
 	public PreparedStatement by_id;
-	public PreparedStatement persist;
+	public PreparedStatement begin;
+	public PreparedStatement commit;
+	public PreparedStatement rollback;
 	
 	public List<DBObject.ColumnData> fields;
 	public Constructor<?>[] ctor;
+	
+	public void commit() {
+		db.commit();
+	}
+	
+	public void rollback() {
+		db.rollback();
+	}
 }
