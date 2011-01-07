@@ -655,6 +655,9 @@ public abstract class DBObject {
 				/* TODO again, match primary key, not hardcoded */
 				refresh(self, rs.getInt(1));
 			}
+			
+			/* mark as existing, since it is definitely saved now */
+			_exists = true;
 		
 			return true;
 		} catch ( Exception e ){
