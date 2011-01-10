@@ -330,8 +330,15 @@ public abstract class DBObject {
         return buffer.toString();
 	}
 	
+	/**
+	 * TODO This *should* be private, but as a hack I made it protected so it
+	 * would be possible to write a custom query which wasn't possible to write
+	 * using the selection api.
+	 * 
+	 *  @note DO NOT USE OUTSIDE THIS CLASS! CONSIDER IT PRIVATE!
+	 */
 	@SuppressWarnings("unchecked")
-	private static <T extends DBObject> T instantiate(DBObjectState query, ResultSet rs, Object[] args) throws Exception {
+	protected static <T extends DBObject> T instantiate(DBObjectState query, ResultSet rs, Object[] args) throws Exception {
 		Constructor<?> ctor = null;
 		
 		/* try to find a constructor matching args */
