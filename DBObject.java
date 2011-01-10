@@ -1,5 +1,10 @@
 package se.bth.libsla.db;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
+import java.io.Serializable;
 import java.lang.annotation.*;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
@@ -58,10 +63,24 @@ public abstract class DBObject {
 		Class<? extends DBObject> value();
 	}
 	
+	/**
+	 * Mark field as a reference to another class using Serializable as a middleman.
+	 * Table column must have the datatype BLOB.
+	 * E.g.
+	 * 		"private @Column(data) @Serializes(Foo.class) Foo inst;"
+	 * will create an instance of Foo by deserialization of data.
+	 */
+	@Retention(RetentionPolicy.RUNTIME)
+	@Target(ElementType.FIELD)
+	protected @interface Serializes {
+		Class<? extends Serializable> value();
+	}
+	
 	static public class ColumnData {
 		public String name;
 		public Class<?> data_type;
 		public Class<? extends DBObject> reference;
+		public Class<? extends Serializable> serializes;
 		public Field field;
 	}
 	
@@ -152,6 +171,22 @@ public abstract class DBObject {
 				data.reference = ref.value();
 			}
 			
+			/* check if a serialization was requested */
+			Serializes serializes = field.getAnnotation(Serializes.class);
+			
+			if ( serializes != null ){
+				String type = get_column_datatype(db, table, column.value());
+				
+				if ( !type.equals("blob") ){
+					throw new RuntimeException(String.format(
+						"Class %s.%s (serialized) refers to `%s`.`%s` which has datatype `%s', but is required to be `%s' when serializing.",
+						cls.getName(), field.getName(), table, column.value(), type, "blob"
+					));
+				}
+				
+				data.serializes = serializes.value();
+			}
+			
 			/* store */
 			fields.add(data);
 		}
@@ -211,6 +246,32 @@ public abstract class DBObject {
 		}
 		
 		return result; 
+	}
+	
+	private static String get_column_datatype(DataLayer db, String table, String column_name) throws SQLException {
+		PreparedStatement query = db.prepareStatement(
+			"SELECT" +
+			"\t`DATA_TYPE`\n" +
+			"FROM" +
+			"\t`information_schema`.`COLUMNS`\n" +
+			"WHERE\n" + 
+			"\t`TABLE_SCHEMA` = ? AND\n" +
+			"\t`table_name` = ? AND\n" +
+			"\t`COLUMN_NAME` = ?\n" +
+			"LIMIT 1"
+		);
+		
+		query.setString(1, db.dbname());
+		query.setString(2, table);
+		query.setString(3, column_name);
+		query.execute();
+		ResultSet rs = query.getResultSet();
+		
+		if ( !rs.next() ){
+			return null;
+		}
+		
+		return rs.getString(1);
 	}
 	
 	private static String column_query_from_array(List<ColumnData> fields){
@@ -324,6 +385,17 @@ public abstract class DBObject {
 					Constructor<? extends DBObject> ctor = ref_cls.getConstructor(value.getClass());
 
 					value = ctor.newInstance(value);
+				} catch ( Exception e ){
+					e.printStackTrace();
+					value = null;
+				}
+			}
+			
+			if ( field.serializes != null ){ /* serialized column */
+				try {
+					ByteArrayInputStream bis = new ByteArrayInputStream((byte[]) value);
+					ObjectInputStream in = new ObjectInputStream(bis);
+					value = in.readObject();
 				} catch ( Exception e ){
 					e.printStackTrace();
 					value = null;
@@ -603,8 +675,19 @@ public abstract class DBObject {
 				return null;
 			}
 			
+			/* for references the primary key is stored */
 			if ( column.reference != null ){
 				value = ((DBObject)value).primary_key();
+			}
+			
+			/* serialize object if serialization is requested */
+			if ( column.serializes != null ){
+				ByteArrayOutputStream bos = new ByteArrayOutputStream();
+				ObjectOutputStream out = new ObjectOutputStream(bos);
+				out.writeObject(value);
+				out.close();
+				
+				value = bos.toByteArray();
 			}
 		} catch ( Exception ei ){
 			System.err.println("Exception raised when reading column " + column.name + ":");
