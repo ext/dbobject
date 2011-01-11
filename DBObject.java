@@ -103,11 +103,12 @@ public abstract class DBObject {
 	 * @return A DescriptionTableQuery state object, pass this to other methods.
 	 * @throws SQLException
 	 */
-	protected static <T> DBObjectState initialize(Class<T> cls, DataLayer db, String table) throws Exception {
+	protected static <T extends DBObject> DBObjectState initialize(Class<T> cls, DataLayer db, String table) throws Exception {
 		DBObjectState query = new DBObjectState();
 		
 		query.db = db;
 		query.table = table;
+		query.cls = cls;
 		query.fields = get_fields(cls, db, table);
 		query.ctor = cls.getConstructors();
 			
@@ -366,7 +367,18 @@ public abstract class DBObject {
 		
 		/* no matching constructor found */
 		if ( ctor == null ){
-			throw new NoSuchMethodException("Could not find a matching constructor");
+			StringBuilder prototype = new StringBuilder();
+			prototype.append(query.cls.getName());
+			prototype.append('(');
+			for ( Object a : args ){
+				prototype.append(a.getClass().getName());
+				prototype.append(", ");
+			}
+			prototype.append(')');
+			throw new NoSuchMethodException(String.format(
+				"Could not find a constructor matching '%s'",
+				prototype.toString()
+			));
 		}
 		
 		/* create a new instance of T */

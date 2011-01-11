@@ -7,6 +7,7 @@ import java.util.List;
 public class DBObjectState {
 	public DataLayer db;
 	public String table;
+	public Class<? extends DBObject> cls;
 	
 	public PreparedStatement all;
 	public PreparedStatement by_id;
