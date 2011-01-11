@@ -128,8 +128,17 @@ public abstract class DBObject {
 				));
 			}
 			
+			/**
+			 * TIMESTAMP and NULL.
+			 * Timestamps handles null values different than other datatypes.
+			 * 
+			 * If column is declared "NOT NULL", NULL is still permitted and
+			 * means the same as CURRENT_TIMESTAMP: "[..] and assigning NULL
+			 * assigns the current timestamp" (MySQL Reference 5.0)
+			 */
+			
 			column_datatype = rs.getString(1);
-			column_nullable = rs.getBoolean(2);
+			column_nullable = rs.getBoolean(2) || column_datatype.equals("timestamp"); /* se note above */
 			column_primary  = rs.getString(1).equals("PRI");
 		}
 	}
@@ -757,6 +766,14 @@ public abstract class DBObject {
 				}
 				
 				Object value = value_from_column(f);
+				
+				if ( value == null && !f.column_nullable ){
+					throw new SQLException(String.format(
+						"Field %s.%s cannot be null, `%s`.`%s` declared 'NOT NULL'",
+						self.cls.getName(), f.field_name, self.table, f.column_name
+					));
+				}
+				
 				query.setObject(i++, value);
 			}
 			
