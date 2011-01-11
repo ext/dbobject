@@ -77,11 +77,61 @@ public abstract class DBObject {
 	}
 	
 	static public class ColumnData {
-		public String name;
-		public Class<?> data_type;
+		/* Field refers to the class members */
+		public Field field;
+		public String field_name;
+		public Class<?> field_datatype;
+		
+		/* Column refers to the database table */
+		public String column_name;
+		public String column_datatype;
+		public boolean column_nullable;
+		public boolean column_primary;
+		
 		public Class<? extends DBObject> reference;
 		public Class<? extends Serializable> serializes;
-		public Field field;
+		
+		@SuppressWarnings("hiding")
+		public ColumnData(DataLayer db, String table, Field field, Column column) throws SQLException{
+			this.field_name = field.getName();
+			this.field_datatype = field.getType();
+			
+			this.column_name = column.value();
+			
+			this.reference = null;
+			this.field = field;
+			
+			PreparedStatement query = db.prepareStatement(
+				"SELECT" +
+				"	`DATA_TYPE`,\n" +
+				"	`IS_NULLABLE`,\n" +
+				"	`COLUMN_KEY`\n" +
+				"FROM" +
+				"	`information_schema`.`COLUMNS`\n" +
+				"WHERE\n" + 
+				"	`TABLE_SCHEMA` = ? AND\n" +
+				"	`TABLE_NAME` = ? AND\n" +
+				"	`COLUMN_NAME` = ?\n" +
+				"LIMIT 1"
+			);
+				
+			query.setString(1, db.dbname());
+			query.setString(2, table);
+			query.setString(3, column_name);
+			query.execute();
+			ResultSet rs = query.getResultSet();
+			
+			if ( !rs.next() ){
+				throw new SQLException(String.format(
+					"`%s`.`%s` does not exist",
+					table, column
+				));
+			}
+			
+			column_datatype = rs.getString(1);
+			column_nullable = rs.getBoolean(2);
+			column_primary  = rs.getString(1).equals("PRI");
+		}
 	}
 	
 	/* If true, it means that the object has a corresponding row in the
@@ -159,11 +209,7 @@ public abstract class DBObject {
 			field.setAccessible(true);
 			
 			/* Create and fill field wrapper */
-			ColumnData data = new ColumnData();
-			data.name = column.value();
-			data.data_type = field.getType();
-			data.reference = null;
-			data.field = field;
+			ColumnData data = new ColumnData(db, table, field, column);
 			
 			/* check if a reference (to another DBObject class) was requested */
 			References ref = field.getAnnotation(References.class);
@@ -176,12 +222,10 @@ public abstract class DBObject {
 			Serializes serializes = field.getAnnotation(Serializes.class);
 			
 			if ( serializes != null ){
-				String type = get_column_datatype(db, table, column.value());
-				
-				if ( !type.equals("blob") ){
+				if ( !data.column_datatype.equals("blob") ){
 					throw new RuntimeException(String.format(
 						"Class %s.%s (serialized) refers to `%s`.`%s` which has datatype `%s', but is required to be `%s' when serializing.",
-						cls.getName(), field.getName(), table, column.value(), type, "blob"
+						cls.getName(), field.getName(), table, column.value(), data.column_datatype, "blob"
 					));
 				}
 				
@@ -246,39 +290,13 @@ public abstract class DBObject {
 			result.add( rs.getString(1) );
 		}
 		
-		return result; 
-	}
-	
-	private static String get_column_datatype(DataLayer db, String table, String column_name) throws SQLException {
-		PreparedStatement query = db.prepareStatement(
-			"SELECT" +
-			"\t`DATA_TYPE`\n" +
-			"FROM" +
-			"\t`information_schema`.`COLUMNS`\n" +
-			"WHERE\n" + 
-			"\t`TABLE_SCHEMA` = ? AND\n" +
-			"\t`table_name` = ? AND\n" +
-			"\t`COLUMN_NAME` = ?\n" +
-			"LIMIT 1"
-		);
-		
-		query.setString(1, db.dbname());
-		query.setString(2, table);
-		query.setString(3, column_name);
-		query.execute();
-		ResultSet rs = query.getResultSet();
-		
-		if ( !rs.next() ){
-			return null;
-		}
-		
-		return rs.getString(1);
+		return result;
 	}
 	
 	private static String column_query_from_array(List<ColumnData> fields){
 		List<String> tmp = new ArrayList<String>(fields.size());
 		for ( ColumnData f : fields ){
-			tmp.add(String.format("\t`%s`", f.name));
+			tmp.add(String.format("\t`%s`", f.column_name));
 		}
 		
 		return array_join(tmp, ",\n") + "\n"; /* append a space after so it doesn't choke
@@ -290,11 +308,11 @@ public abstract class DBObject {
 		List<String> tmp = new ArrayList<String>(fields.size());
 		for ( ColumnData f : fields ){
 			/* TODO should blacklist based on primary key, not hardcoded column */
-			if ( f.name.equals("id") ){
+			if ( f.column_name.equals("id") ){
 				continue;
 			}
 			
-			tmp.add(String.format("\t`%s` = ?", f.name));
+			tmp.add(String.format("\t`%s` = ?", f.column_name));
 		}
 		
 		return array_join(tmp, ",\n") + "\n"; /* append a space after so it doesn't choke
@@ -396,7 +414,7 @@ public abstract class DBObject {
 	
 	private void update_fields(DBObjectState self, ResultSet rs) throws Exception {
 		for ( ColumnData field : self.fields ){
-			Object value = rs.getObject(field.name);
+			Object value = rs.getObject(field.column_name);
 			
 			if ( field.reference != null ){ /* reference column */
 				try {
@@ -709,7 +727,7 @@ public abstract class DBObject {
 				value = bos.toByteArray();
 			}
 		} catch ( Exception ei ){
-			System.err.println("Exception raised when reading column " + column.name + ":");
+			System.err.println("Exception raised when reading column " + column.column_name + ":");
 			throw ei;
 		}
 		
@@ -734,7 +752,7 @@ public abstract class DBObject {
 			/* Fill all column values */
 			for ( ColumnData f : self.fields ){
 				/* TODO should blacklist based on primary key, not hardcoded column */
-				if ( f.name.equals("id") ){
+				if ( f.column_name.equals("id") ){
 					continue;
 				}
 				
