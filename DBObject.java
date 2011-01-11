@@ -307,8 +307,8 @@ public abstract class DBObject {
 	private static String column_update_from_array(List<ColumnData> fields){
 		List<String> tmp = new ArrayList<String>(fields.size());
 		for ( ColumnData f : fields ){
-			/* TODO should blacklist based on primary key, not hardcoded column */
-			if ( f.column_name.equals("id") ){
+			/* column is primary_key, ignore */
+			if ( f.column_primary ){
 				continue;
 			}
 			
@@ -751,8 +751,8 @@ public abstract class DBObject {
 			
 			/* Fill all column values */
 			for ( ColumnData f : self.fields ){
-				/* TODO should blacklist based on primary key, not hardcoded column */
-				if ( f.column_name.equals("id") ){
+				/* column is primary_key, ignore */
+				if ( f.column_primary ){
 					continue;
 				}
 				
