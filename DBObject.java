@@ -313,7 +313,7 @@ public abstract class DBObject {
 		                               */
 	}
 	
-	private static String column_update_from_array(List<ColumnData> fields){
+	private static String column_update_from_array(List<ColumnData> fields, DBObject values) {
 		List<String> tmp = new ArrayList<String>(fields.size());
 		for ( ColumnData f : fields ){
 			/* column is primary_key, ignore */
@@ -321,7 +321,27 @@ public abstract class DBObject {
 				continue;
 			}
 			
-			tmp.add(String.format("\t`%s` = ?", f.column_name));
+			/* If values is null, placeholders are used */ 
+			if ( values == null ){
+				tmp.add(String.format("\t`%s` = ?", f.column_name));
+			} else {
+				String value;
+				try {
+					value = f.field.get(values).toString();
+					
+					/* simple escape, not enough to protect against injection. */
+					value = value.replace("\n", "\\\n");
+					value = value.replace("\r", "\\\r");
+					value = value.replace("\\", "\\\\");
+					value = value.replace("'", "\\'");
+					value = value.replace("\"", "\\\"");
+				} catch (Exception e) {
+					e.printStackTrace();
+					value = "";
+				}
+				
+				tmp.add(String.format("\t`%s` = '%s'", f.column_name, value));
+			}
 		}
 		
 		return array_join(tmp, ",\n") + "\n"; /* append a space after so it doesn't choke
@@ -808,19 +828,35 @@ public abstract class DBObject {
 	/**
 	 * Create the query used by persist()
 	 */
-	private String persist_query_store(DBObjectState self){
+	public String persist_query_store(DBObjectState self){
+		return persist_query_store(self, _exists, null, null); /* want placeholders */
+	}
+	
+	/**
+	 * Create a query to insert or update this object.
+	 * @param self
+	 * @param update If true, create an UPDATE, otherwise INSERT
+	 * @return
+	 */
+	static public String persist_query_store(DBObjectState self, boolean update, DBObject values, Map<String, String> extra){
 		StringBuilder dst = new StringBuilder();
 		
-		if ( _exists ){
+		if ( update ){
 			dst.append("UPDATE ");
 		} else {
 			dst.append("INSERT INTO ");
 		}
-		
 		dst.append("`" + self.table + "` SET\n");
-		dst.append(column_update_from_array(self.fields));
 		
-		if ( _exists ){
+		if ( extra != null){
+			for ( Map.Entry<String, String> entry : extra.entrySet() ){
+				dst.append(String.format("	`%s` = %s,\n", entry.getKey(), entry.getValue()));
+			}
+		}
+		
+		dst.append(column_update_from_array(self.fields, values));
+		
+		if ( update ){
 			dst.append("WHERE\n");
 			dst.append("\t`id` = ?;\n");
 		} else {
