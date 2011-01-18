@@ -139,7 +139,7 @@ public abstract class DBObject {
 			
 			column_datatype = rs.getString(1);
 			column_nullable = rs.getBoolean(2) || column_datatype.equals("timestamp"); /* se note above */
-			column_primary  = rs.getString(1).equals("PRI");
+			column_primary  = rs.getString(3).equals("PRI");
 		}
 	}
 	
