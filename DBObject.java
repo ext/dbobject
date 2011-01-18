@@ -461,7 +461,12 @@ public abstract class DBObject {
 				try {
 					ByteArrayInputStream bis = new ByteArrayInputStream((byte[]) value);
 					ObjectInputStream in = new ObjectInputStream(bis);
-					value = in.readObject();
+					
+					try {
+						value = in.readObject();
+					} catch ( ClassNotFoundException e ){
+						value = null;
+					}
 				} catch ( Exception e ){
 					e.printStackTrace();
 					value = null;
