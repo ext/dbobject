@@ -8,6 +8,7 @@ import java.io.Serializable;
 import java.lang.annotation.*;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -463,7 +464,25 @@ public abstract class DBObject {
 					ObjectInputStream in = new ObjectInputStream(bis);
 					
 					try {
-						value = in.readObject();
+						/* if the field is already set, update it instead */
+						Object current = field.field.get(this);
+						Method readObject = null;
+						
+						if ( current != null ){
+							try {
+								readObject = current.getClass().getDeclaredMethod("readObject", java.io.ObjectInputStream.class);
+							} catch ( Exception e ){
+								/* pass */
+							}
+						}
+						
+						if ( readObject != null ){
+							readObject.setAccessible(true);
+							readObject.invoke(current, in);
+							value = current;
+						} else {
+							value = in.readObject();
+						}
 					} catch ( ClassNotFoundException e ){
 						value = null;
 					}
