@@ -9,9 +9,9 @@ Sample
 ------
 
 	public class Party extends DBObject implements se.bth.libsla.Party {
-	        private static DBObjectState query;
+		private static DBObjectState query;
 	       
-	       	private @Column("id") int _id;
+		private @Column("id") int _id;
 		private @Column("sla_id")    @References(SLA.class)  SLA _sla;
 		private @Column("role_id")   @References(Role.class) Role _role;
 		private @Column("peer_data") @Serializes(Peer.class) Peer _peer;
