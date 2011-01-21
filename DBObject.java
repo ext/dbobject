@@ -85,6 +85,7 @@ public abstract class DBObject {
 		
 		/* Column refers to the database table */
 		public String column_name;
+		public String column_query_alias; /* normally this is set to "`column_name`", but for special cases like enums it might be "`column_name`+0 AS `column name`" */ 
 		public String column_datatype;
 		public boolean column_nullable;
 		public boolean column_primary;
@@ -92,14 +93,15 @@ public abstract class DBObject {
 		public Class<? extends DBObject> reference;
 		public Class<? extends Serializable> serializes;
 		
-		@SuppressWarnings("hiding")
 		public ColumnData(DataLayer db, String table, Field field, Column column) throws SQLException{
 			this.field_name = field.getName();
 			this.field_datatype = field.getType();
 			
 			this.column_name = column.value();
+			this.column_query_alias = "`" + column.value() + "`";
 			
 			this.reference = null;
+			this.serializes = null;
 			this.field = field;
 			
 			PreparedStatement query = db.prepareStatement(
@@ -242,6 +244,25 @@ public abstract class DBObject {
 				data.serializes = serializes.value();
 			}
 			
+			if ( data.column_datatype.equals("enum") ){ for (;;){ /* so we can break */
+				/* enum -> String is fine */
+				if ( data.field_datatype.equals(String.class) ){
+					break;
+				}
+				
+				/* enum -> int||Integer needs type conversion */
+				if ( data.field_datatype.equals(Integer.class) || data.field_datatype.equals(int.class) ){
+					/* The official way according to the mysql manual is to add +0 in the query. */
+					data.column_query_alias = String.format("`%s`+0 AS `%s`", column.value(), column.value());
+					break;
+				}
+				
+				throw new RuntimeException(String.format(
+					"Class %s.%s refers to `%s`.`%s` which is an enum, but declared field is not a String or Integer but a %s.",
+					cls.getName(), field.getName(), table, column.value(), data.field_datatype
+				));
+			}}
+			
 			/* store */
 			fields.add(data);
 		}
@@ -306,7 +327,7 @@ public abstract class DBObject {
 	private static String column_query_from_array(List<ColumnData> fields){
 		List<String> tmp = new ArrayList<String>(fields.size());
 		for ( ColumnData f : fields ){
-			tmp.add(String.format("\t`%s`", f.column_name));
+			tmp.add(String.format("\t%s", f.column_query_alias));
 		}
 		
 		return array_join(tmp, ",\n") + "\n"; /* append a space after so it doesn't choke
@@ -489,6 +510,14 @@ public abstract class DBObject {
 				} catch ( Exception e ){
 					e.printStackTrace();
 					value = null;
+				}
+			}
+			
+			if ( field.column_datatype.equals("enum") ){ /* enumerated column */
+				if ( field.field_datatype.equals(Integer.class) || field.field_datatype.equals(int.class) ){
+					if ( value != null ){
+						value = ((Double)value).intValue();
+					}
 				}
 			}
 			
