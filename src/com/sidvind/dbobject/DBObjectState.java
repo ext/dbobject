@@ -1,4 +1,4 @@
-package se.bth.libsla.db;
+package com.sidvind.dbobject;
 
 import java.lang.reflect.Constructor;
 import java.sql.PreparedStatement;
